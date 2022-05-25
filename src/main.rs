@@ -2,10 +2,13 @@ mod cli;
 mod github;
 mod zip_utils;
 
-use std::{path::Path, io::Cursor, fs::File};
+use std::{fs::File, io::Cursor, path::Path};
 
 use clap::Parser;
-use reqwest::{Client, header::{HeaderMap, AUTHORIZATION, HeaderValue, USER_AGENT}};
+use reqwest::{
+    header::{HeaderMap, HeaderValue, AUTHORIZATION, USER_AGENT},
+    Client,
+};
 use zip_utils::extract_to_directory;
 
 use crate::{cli::Args, github::ReleasesLatest};
@@ -54,12 +57,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if tool_path.exists() {
             let version = std::fs::read_to_string(&tool_path)?;
             if version.starts_with(&latest.tag_name) {
-                println!("  Skipping, latest version ({}) already installed.", &latest.tag_name);
+                println!(
+                    "  Skipping, latest version ({}) already installed.",
+                    &latest.tag_name
+                );
                 continue;
             }
         }
         std::fs::write(&tool_path, &latest.tag_name)?;
-        
+
         println!("  Updating to {}", &latest.tag_name);
         for asset in latest.assets {
             let url = &asset.browser_download_url;
@@ -108,33 +114,41 @@ fn get_token(args: &Args) -> Result<String, Box<dyn std::error::Error>> {
                     keyring::Error::NoEntry => {
                         eprintln!("No token found! Please supply one with '--token' so that it can be saved for future use.");
                         std::process::exit(1);
-                    },
+                    }
                     _ => {
                         Err(error)?;
                     }
                 }
                 panic!()
-            },
+            }
         }
     };
     Ok(token)
 }
 
-async fn get_latest_release_async(token: &str, owner: &str, repo: &str) -> Result<ReleasesLatest, Box<dyn std::error::Error>> {
+async fn get_latest_release_async(
+    token: &str,
+    owner: &str,
+    repo: &str,
+) -> Result<ReleasesLatest, Box<dyn std::error::Error>> {
     let request_url = format!("https://api.github.com/repos/{owner}/{repo}/releases/latest");
     //println!("{}", request_url);
 
     let mut headers = HeaderMap::new();
-    headers.insert(AUTHORIZATION, HeaderValue::from_str(&format!("token {}", &token))?);
+    headers.insert(
+        AUTHORIZATION,
+        HeaderValue::from_str(&format!("token {}", &token))?,
+    );
     headers.insert(USER_AGENT, HeaderValue::from_str(SERVICE_NAME)?);
 
     let response = Client::new()
         .get(&request_url)
         .headers(headers)
-        .send().await?;
+        .send()
+        .await?;
     //println!("{:#?}", response);
 
-    let latest = response.json::<ReleasesLatest>().await?;  
+    let latest = response.json::<ReleasesLatest>().await?;
     Ok(latest)
 }
 
@@ -153,20 +167,26 @@ fn get_tools<P: AsRef<Path>>(path: P) -> Vec<(String, String)> {
         if line.is_empty() || line.starts_with("//") {
             continue;
         }
-        let (owner, repo) = line.split_once('/').expect("Invalid format for repo entry in tools registry!");
+        let (owner, repo) = line
+            .split_once('/')
+            .expect("Invalid format for repo entry in tools registry!");
         tools.push((owner.to_owned(), repo.to_owned()));
     }
     tools
 }
 
-async fn download_file_async<P: AsRef<Path>>(url: &str, folder: P, file_name: &str) -> Result<File, Box<dyn std::error::Error>> {
+async fn download_file_async<P: AsRef<Path>>(
+    url: &str,
+    folder: P,
+    file_name: &str,
+) -> Result<File, Box<dyn std::error::Error>> {
     let mut path = folder.as_ref().to_owned();
     path.push(file_name);
 
     {
         let response = reqwest::get(url).await?;
         let mut file = File::create(&path)?;
-        let mut content =  Cursor::new(response.bytes().await?);
+        let mut content = Cursor::new(response.bytes().await?);
         std::io::copy(&mut content, &mut file)?;
     }
 

@@ -1,8 +1,11 @@
-use std::{path::Path, fs::File};
+use std::{fs::File, path::Path};
 
 use zip::ZipArchive;
 
-pub fn extract_to_directory<P: AsRef<Path>>(file: File, path: P) -> Result<(), Box<dyn std::error::Error>> {
+pub fn extract_to_directory<P: AsRef<Path>>(
+    file: File,
+    path: P,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut archive = ZipArchive::new(file)?;
     let root_path = path.as_ref().to_owned();
 
@@ -13,7 +16,7 @@ pub fn extract_to_directory<P: AsRef<Path>>(file: File, path: P) -> Result<(), B
                 let mut output_path = root_path.clone();
                 output_path.push(path);
                 output_path
-            },
+            }
             None => continue,
         };
 
@@ -37,7 +40,8 @@ pub fn extract_to_directory<P: AsRef<Path>>(file: File, path: P) -> Result<(), B
             use std::os::unix::fs::PermissionsExt;
 
             if let Some(mode) = file.unix_mode() {
-                std::fs::set_permissions(&output_path, std::fs::Permissions::from_mode(mode)).unwrap();
+                std::fs::set_permissions(&output_path, std::fs::Permissions::from_mode(mode))
+                    .unwrap();
             }
         }
     }
