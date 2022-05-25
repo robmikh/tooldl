@@ -6,16 +6,25 @@ use reqwest::{Client, header::{HeaderMap, AUTHORIZATION, HeaderValue, USER_AGENT
 
 use crate::{cli::Args, github::ReleasesLatest};
 
+pub const SERVICE_NAME: &str = "tooldl";
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    let service = "tooldl";
-    let username = args.user;
-    let keyring_entry = keyring::Entry::new(&service, &username);
-    let token = if let Some(token) = args.token {
+    let token = get_token(&args)?;
+
+    let latest = get_latest_release_async(&token, "robmikh", "Win32CaptureSample").await?;
+    println!("{:#?}", latest);
+
+    Ok(())
+}
+
+fn get_token(args: &Args) -> Result<String, Box<dyn std::error::Error>> {
+    let keyring_entry = keyring::Entry::new(SERVICE_NAME, &args.user);
+    let token = if let Some(token) = &args.token {
         keyring_entry.set_password(&token)?;
-        token
+        token.clone()
     } else {
         let result = keyring_entry.get_password();
         match result {
@@ -34,24 +43,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
         }
     };
+    Ok(token)
+}
 
-    let request_url = format!("https://api.github.com/repos/{owner}/{repo}/releases/latest",
-                              owner = "robmikh",
-                              repo = "Win32CaptureSample");
-    println!("{}", request_url);
+async fn get_latest_release_async(token: &str, owner: &str, repo: &str) -> Result<ReleasesLatest, Box<dyn std::error::Error>> {
+    let request_url = format!("https://api.github.com/repos/{owner}/{repo}/releases/latest");
+    //println!("{}", request_url);
 
     let mut headers = HeaderMap::new();
     headers.insert(AUTHORIZATION, HeaderValue::from_str(&format!("token {}", &token))?);
-    headers.insert(USER_AGENT, HeaderValue::from_str(service)?);
+    headers.insert(USER_AGENT, HeaderValue::from_str(SERVICE_NAME)?);
 
     let response = Client::new()
         .get(&request_url)
         .headers(headers)
         .send().await?;
-    println!("{:#?}", response);
-    //let text = response.text().await?;
-    //println!("{:#?}", text);
-    let latest = response.json::<ReleasesLatest>().await?;
-    println!("{:#?}", latest);
-    Ok(())
+    //println!("{:#?}", response);
+
+    let latest = response.json::<ReleasesLatest>().await?;  
+    Ok(latest)
 }
