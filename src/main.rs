@@ -164,6 +164,7 @@ fn get_tools<P: AsRef<Path>>(path: P) -> Vec<(String, String)> {
     let string = std::fs::read_to_string(path).unwrap();
     let lines = string.lines();
     for line in lines {
+        let line = line.trim();
         if line.is_empty() || line.starts_with("//") {
             continue;
         }
