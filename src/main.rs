@@ -6,7 +6,7 @@ use std::{fs::File, io::Cursor, path::Path};
 
 use clap::Parser;
 use reqwest::{
-    header::{HeaderMap, HeaderValue, AUTHORIZATION, USER_AGENT},
+    header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT},
     Client,
 };
 use zip_utils::extract_to_directory;
@@ -76,11 +76,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 continue;
             }
         }
-        std::fs::write(&tool_path, &latest.tag_name)?;
+        // Wait to write this file until we succeed. Save this path for later.
+        let info_file_path = tool_path.clone();
 
         println!("  Updating to {}", &latest.tag_name);
         for asset in latest.assets {
-            let url = &asset.browser_download_url;
+            let url = &asset.url;
             let name = &asset.name;
 
             if !name.ends_with(".zip") {
@@ -101,9 +102,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // Download the release and unzip it
-            let zip_file = download_file_async(url, &temp_folder, name).await?;
+            let zip_file = download_file_async(url, &token, &temp_folder, name).await?;
             extract_to_directory(zip_file, &tool_path)?;
         }
+
+        std::fs::write(&info_file_path, &latest.tag_name)?;
 
         upgraded += 1;
     }
@@ -157,7 +160,7 @@ async fn get_latest_release_async(
     let mut headers = HeaderMap::new();
     headers.insert(
         AUTHORIZATION,
-        HeaderValue::from_str(&format!("token {}", &token))?,
+        HeaderValue::from_str(&format!("token {}", token))?,
     );
     headers.insert(USER_AGENT, HeaderValue::from_str(SERVICE_NAME)?);
 
@@ -198,6 +201,7 @@ fn get_tools<P: AsRef<Path>>(path: P) -> Vec<(String, String)> {
 
 async fn download_file_async<P: AsRef<Path>>(
     url: &str,
+    token: &str,
     folder: P,
     file_name: &str,
 ) -> Result<File, Box<dyn std::error::Error>> {
@@ -205,7 +209,15 @@ async fn download_file_async<P: AsRef<Path>>(
     path.push(file_name);
 
     {
-        let response = reqwest::get(url).await?;
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("token {}", token))?,
+        );
+        headers.insert(USER_AGENT, HeaderValue::from_str(SERVICE_NAME)?);
+        headers.insert(ACCEPT, HeaderValue::from_str("application/octet-stream")?);
+
+        let response = Client::new().get(url).headers(headers).send().await?;
         let mut file = File::create(&path)?;
         let mut content = Cursor::new(response.bytes().await?);
         std::io::copy(&mut content, &mut file)?;
