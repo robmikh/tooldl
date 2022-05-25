@@ -38,9 +38,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::fs::create_dir(&temp_folder)?;
     }
 
+    let mut upgraded = 0;
+    let mut skipped = 0;
+    let mut failed = 0;
     for (owner, repo) in tool_repos {
         println!("Processing {owner}/{repo}...");
-        let latest = get_latest_release_async(&token, &owner, &repo).await?;
+        let latest = match get_latest_release_async(&token, &owner, &repo).await {
+            Ok(latest) => latest,
+            Err(error) => {
+                println!("  Failed to query the latest release. Make sure the repo is valid and has at least one public non-prerelease release.");
+                eprintln!("  Error: {}", error);
+                failed += 1;
+                continue;
+            }
+        };
         //println!("{:#?}", latest);
         let mut tool_path = {
             let mut tool_path = tools_folder.clone();
@@ -61,6 +72,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "  Skipping, latest version ({}) already installed.",
                     &latest.tag_name
                 );
+                skipped += 1;
                 continue;
             }
         }
@@ -92,10 +104,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let zip_file = download_file_async(url, &temp_folder, name).await?;
             extract_to_directory(zip_file, &tool_path)?;
         }
+
+        upgraded += 1;
     }
 
     // Delete temp folder
     std::fs::remove_dir_all(temp_folder)?;
+
+    // Print summary
+    println!("");
+    println!("Upgraded: {:>6}", upgraded);
+    println!("Skipped:  {:>6}", skipped);
+    println!("Failed:   {:>6}", failed);
 
     Ok(())
 }
