@@ -1,10 +1,12 @@
 mod cli;
 mod github;
+mod zip_utils;
 
-use std::path::Path;
+use std::{path::Path, io::Cursor, fs::File};
 
 use clap::Parser;
 use reqwest::{Client, header::{HeaderMap, AUTHORIZATION, HeaderValue, USER_AGENT}};
+use zip_utils::extract_to_directory;
 
 use crate::{cli::Args, github::ReleasesLatest};
 
@@ -23,10 +25,70 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let tool_repos = get_tools(&tools_registry);
 
-    for (owner, repo) in tool_repos {
-        let latest = get_latest_release_async(&token, &owner, &repo).await?;
-        println!("{:#?}", latest);
+    let temp_folder = {
+        let mut temp_folder = std::env::temp_dir();
+        temp_folder.push("tooldl");
+        temp_folder
+    };
+    //println!("{:?}", &temp_folder);
+    if !temp_folder.exists() {
+        std::fs::create_dir(&temp_folder)?;
     }
+
+    for (owner, repo) in tool_repos {
+        println!("Processing {owner}/{repo}...");
+        let latest = get_latest_release_async(&token, &owner, &repo).await?;
+        //println!("{:#?}", latest);
+        let mut tool_path = {
+            let mut tool_path = tools_folder.clone();
+            tool_path.push(&repo);
+            tool_path
+        };
+        if !tool_path.exists() {
+            std::fs::create_dir(&tool_path)?;
+        }
+
+        tool_path.push("info.txt");
+        // If info.txt exists, check to see if it has a matching version.
+        // If it does, we don't need to download a new copy.
+        if tool_path.exists() {
+            let version = std::fs::read_to_string(&tool_path)?;
+            if version.starts_with(&latest.tag_name) {
+                println!("  Skipping, latest version ({}) already installed.", &latest.tag_name);
+                continue;
+            }
+        }
+        std::fs::write(&tool_path, &latest.tag_name)?;
+        
+        println!("  Updating to {}", &latest.tag_name);
+        for asset in latest.assets {
+            let url = &asset.browser_download_url;
+            let name = &asset.name;
+
+            if !name.ends_with(".zip") {
+                continue;
+            }
+
+            let arch = if name.contains("x64") || name.contains("x86_64") {
+                "x64"
+            } else if name.contains("ARM64") || name.contains("aarch64") {
+                "ARM64"
+            } else {
+                continue;
+            };
+
+            tool_path.set_file_name(arch);
+            if !tool_path.exists() {
+                std::fs::create_dir(&tool_path)?;
+            }
+
+            // Download the release and unzip it
+            let zip_file = download_file_async(url, &temp_folder, name).await?;
+            extract_to_directory(zip_file, &tool_path)?;
+        }
+    }
+
+    // TODO: Delete temp folder
 
     Ok(())
 }
@@ -94,4 +156,19 @@ fn get_tools<P: AsRef<Path>>(path: P) -> Vec<(String, String)> {
         tools.push((owner.to_owned(), repo.to_owned()));
     }
     tools
+}
+
+async fn download_file_async<P: AsRef<Path>>(url: &str, folder: P, file_name: &str) -> Result<File, Box<dyn std::error::Error>> {
+    let mut path = folder.as_ref().to_owned();
+    path.push(file_name);
+
+    {
+        let response = reqwest::get(url).await?;
+        let mut file = File::create(&path)?;
+        let mut content =  Cursor::new(response.bytes().await?);
+        std::io::copy(&mut content, &mut file)?;
+    }
+
+    let file = File::open(path)?;
+    Ok(file)
 }
