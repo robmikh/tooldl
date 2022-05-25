@@ -1,6 +1,8 @@
 mod cli;
 mod github;
 
+use std::path::Path;
+
 use clap::Parser;
 use reqwest::{Client, header::{HeaderMap, AUTHORIZATION, HeaderValue, USER_AGENT}};
 
@@ -11,11 +13,20 @@ pub const SERVICE_NAME: &str = "tooldl";
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-
     let token = get_token(&args)?;
 
-    let latest = get_latest_release_async(&token, "robmikh", "Win32CaptureSample").await?;
-    println!("{:#?}", latest);
+    let tools_folder = args.path();
+    let tools_registry = {
+        let mut tools_registry = tools_folder.clone();
+        tools_registry.push("tools.txt");
+        tools_registry
+    };
+    let tool_repos = get_tools(&tools_registry);
+
+    for (owner, repo) in tool_repos {
+        let latest = get_latest_release_async(&token, &owner, &repo).await?;
+        println!("{:#?}", latest);
+    }
 
     Ok(())
 }
@@ -62,4 +73,25 @@ async fn get_latest_release_async(token: &str, owner: &str, repo: &str) -> Resul
 
     let latest = response.json::<ReleasesLatest>().await?;  
     Ok(latest)
+}
+
+fn get_tools<P: AsRef<Path>>(path: P) -> Vec<(String, String)> {
+    let path = path.as_ref();
+
+    if !path.exists() {
+        eprintln!("Tools registry not found! Make sure there is a 'tools.txt' file in the specified directory.");
+        std::process::exit(1);
+    }
+
+    let mut tools = Vec::new();
+    let string = std::fs::read_to_string(path).unwrap();
+    let lines = string.lines();
+    for line in lines {
+        if line.is_empty() || line.starts_with("//") {
+            continue;
+        }
+        let (owner, repo) = line.split_once('/').expect("Invalid format for repo entry in tools registry!");
+        tools.push((owner.to_owned(), repo.to_owned()));
+    }
+    tools
 }
