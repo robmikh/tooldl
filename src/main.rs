@@ -88,7 +88,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // TODO: Delete temp folder
+    // Delete temp folder
+    std::fs::remove_dir_all(temp_folder)?;
 
     Ok(())
 }
